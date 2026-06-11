@@ -108,7 +108,24 @@ run_phase() {
     return 1
   fi
 
-  echo "# server up (pid $SERVER_PID) — /health: $(curl -s "$base/health")"
+  local health mode
+  health=$(curl -s "$base/health")
+  mode=$(printf '%s' "$health" | sed -n 's/.*"llm"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+  echo "# server up (pid $SERVER_PID) — /health: $health"
+
+  # Don't mislabel: if this phase expected a particular backend but the server came up
+  # on the other one (typically: no .env, so "live" phase 1 actually ran the fake), say so.
+  if [ -n "${PHASE_EXPECT:-}" ] && [ "$mode" != "$PHASE_EXPECT" ]; then
+    if [ "$PHASE_EXPECT" = "live" ] && [ "$mode" = "fake" ]; then
+      echo "#"
+      echo "# !! HEADS-UP: this phase is labelled LIVE, but no live backend is configured"
+      echo "#    (no .env, or LLM_BASE_URL is unset), so it is running the deterministic FAKE."
+      echo "#    To demo a real model, configure .env (see the README 'Demo' section) and re-run."
+    else
+      echo "#"
+      echo "# !! HEADS-UP: expected llm='$PHASE_EXPECT' but the server reports llm='$mode'."
+    fi
+  fi
   echo
 
   # Run the walkthrough against this server (DEMO_STEPS selects which steps). Don't let
@@ -123,11 +140,13 @@ RC=0
 
 # Phase 1: LIVE — inherit .env (Groq/Ollama). Happy path only; the failure step (5) is a
 # no-op on a real model, so we skip it here and demonstrate it deterministically in phase 2.
+PHASE_EXPECT="live"
 DEMO_STEPS="1,2,3,4,6,7"
 run_phase "PHASE 1/2 — LIVE model (real LLM analysis; happy path)" \
   "$REAL_PORT" "/tmp/demo-live.db" || { echo "Phase 1 (live) failed — continuing to the fake phase." >&2; RC=1; }
 
 # Phase 2: FAKE — force the deterministic offline backend; show ONLY the FAILED + retry path.
+PHASE_EXPECT="fake"
 DEMO_STEPS="1,5"
 run_phase "PHASE 2/2 — FAKE LLM (FAILED + retry only)" \
   "$FAKE_PORT" "/tmp/demo-fake.db" "LLM_BASE_URL=" || { echo "Phase 2 (fake) failed." >&2; RC=1; }

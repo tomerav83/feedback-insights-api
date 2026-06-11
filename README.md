@@ -158,6 +158,17 @@ fall back to raw JSON if it's absent.
 > (`LLM_BASE_URL= npm start` for the fake, or `npm start` with a configured `.env` for live) and run
 > `BASE=http://localhost:3000 ./demo/demo.sh`.
 
+### Demo recording
+
+<!-- DEMO VIDEO: replace the line below with your recording.
+     Easiest: open this README on github.com, click the pencil (Edit), and drag the
+     .mp4/.mov into the editor — GitHub uploads it and inserts a
+     https://github.com/<owner>/<repo>/assets/... link that renders an inline player.
+     Alternatively link a hosted video (YouTube/Loom):
+       [![Watch the demo](docs/demo-thumbnail.png)](https://youtu.be/VIDEO_ID) -->
+
+_Demo video: to be added._
+
 ---
 
 ## How it works
