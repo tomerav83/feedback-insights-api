@@ -9,10 +9,15 @@ import { z } from 'zod';
  * here exactly once and is never logged or reflected over the API (see /health, which
  * returns only a live|fake boolean derived from whether a backend is configured).
  */
+// An empty env value (e.g. `LLM_BASE_URL=` straight from .env.example) means "unset",
+// not "the empty string" — so the zero-setup fake-LLM default works on a fresh copy
+// instead of failing .url()/.min(1) validation.
+const emptyToUndefined = (v: unknown): unknown => (v === '' ? undefined : v);
+
 const EnvSchema = z.object({
-  LLM_BASE_URL: z.string().url().optional(),
-  LLM_MODEL: z.string().min(1).default('llama3.1'),
-  LLM_API_KEY: z.string().min(1).optional(),
+  LLM_BASE_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
+  LLM_MODEL: z.preprocess(emptyToUndefined, z.string().min(1).default('llama3.1')),
+  LLM_API_KEY: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   PORT: z.coerce.number().int().positive().default(3000),
   DB_PATH: z.string().min(1).default('./data.db'),
   MAX_CONTENT_LENGTH: z.coerce.number().int().positive().default(8000),

@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Backend service that ingests free-text feedback and extracts structured insights via async LLM analysis.",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",

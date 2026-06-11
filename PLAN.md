@@ -13,7 +13,9 @@ This is a backend + judgment exercise. No UI, no auth, no deployment, no exhaust
 <constraints>
 - Timebox: 3 hours. Do NOT overbuild — make conscious tradeoffs and document them.
 - All code is written via an AI assistant (this Claude Code session) — the AI Collaboration Log is authentic.
-- Deliverables: code + README (setup, design decisions, tradeoffs) + AI Collaboration Log.
+- Deliverables: code + README (setup, design decisions, tradeoffs) + AI Collaboration Log
+  + a final screen recording demoing how the project works (per the assignment email).
+- Submission: push to GitHub; send the repo link (plus the recording link) to cv@fusiontek.io.
 - Persistence: SQLite is sufficient.
 </constraints>
 
@@ -218,14 +220,17 @@ Operational robustness:
 | P5 | Read API + hardening | list/detail/filter/pagination, input length cap, stuck-ANALYZING recovery, /health | 20 |
 | P6 | Tests (high-value only) | schema valid/invalid, state flow, dedupe, endpoints — via fake LLM | 20 |
 | P7 | README + AI Collaboration Log | setup, design decisions, tradeoffs, authentic log + "what I'd improve" | 20 |
+| P8 | Demo recording | `demo.sh` (curl sequence driving the full flow) so the screencast is a clean one-take; record a short screen capture showing it work, then link it in the README | 10 |
 
 Checkpoint after each portion before moving on.
 </work-breakdown>
 
 <cut-line>
-Non-negotiable: P0-P4 + P7 (every functional requirement + the writeup).
+Non-negotiable: P0-P4 + P7 + P8 (every functional requirement, the writeup, and the
+required screen recording — no submission is complete without the video).
 Sacrifice in this order if behind: P6 test breadth -> P5 filtering/recovery -> auto-retry
-(keep the manual /retry). Never cut the defensive validation or the README/Collaboration Log.
+(keep the manual /retry). Never cut the defensive validation, the README/Collaboration Log,
+or the demo recording. P8's `demo.sh` is also the fastest manual smoke test of the whole flow.
 </cut-line>
 
 <ai-collaboration-log-plan>
