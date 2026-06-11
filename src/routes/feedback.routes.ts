@@ -28,10 +28,10 @@ function isUniqueViolation(err: unknown): boolean {
  *
  * Validation is Zod (the same schemas used everywhere) so the API boundary rejects
  * empty/over-length/extra-field input before anything is persisted or sent to the LLM.
- *  - POST /feedback         ingest, dedupe by content hash, enqueue (P2 + P4 guardrail)
- *  - GET  /feedback         list with status filter + pagination (P5)
- *  - GET  /feedback/:id     single item + latest analysis (P2)
- *  - POST /feedback/:id/retry  re-enqueue a FAILED item (P4)
+ *  - POST /feedback         ingest, dedupe by content hash, enqueue
+ *  - GET  /feedback         list with status filter + pagination
+ *  - GET  /feedback/:id     single item + latest analysis
+ *  - POST /feedback/:id/retry  re-enqueue a FAILED item
  */
 export async function feedbackRoutes(
   app: FastifyInstance,

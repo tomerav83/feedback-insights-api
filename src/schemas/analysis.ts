@@ -4,8 +4,8 @@ import { z } from 'zod';
  * The AIAnalysis contract — the single strict schema the LLM output must satisfy.
  *
  * This is the heart of the "quality of AI integration" requirement: we force the model
- * toward this shape (P3 derives a JSON Schema from it for `response_format`) and then
- * re-validate the response against it with Zod regardless. `.strict()` rejects unknown
+ * toward this shape (the live client derives a JSON Schema from it for `response_format`)
+ * and then re-validate the response against it with Zod regardless. `.strict()` rejects unknown
  * keys so a chatty model can't smuggle extra fields past us. Anything that fails this
  * schema is treated as a permanent (schema-invalid) failure, never a crash.
  */

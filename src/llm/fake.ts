@@ -9,7 +9,7 @@ import { type LLMAnalysisResult, type LLMClient, TransientLLMError } from './typ
  * "Deterministic" is the point: the same content always yields the same analysis, so the
  * demo and the tests are reproducible. Sentiment and feature-requests are derived from
  * trivial keyword heuristics — good enough to produce a plausible, schema-valid analysis;
- * the real model (P3) does the actual reasoning.
+ * the live model does the actual reasoning.
  *
  * Failure injection — double-underscore sentinels (won't collide with real feedback) let a
  * test or the demo drive each defensive branch on demand:

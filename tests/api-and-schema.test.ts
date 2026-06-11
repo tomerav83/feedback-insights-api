@@ -1,5 +1,5 @@
 /**
- * P6 boundary/contract tests — the high-value gaps that complement the existing
+ * Boundary/contract tests — the high-value gaps that complement the existing
  * state-machine tests (vertical-slice / guardrail-retry / llm-openai-compatible).
  *
  * Two layers:
