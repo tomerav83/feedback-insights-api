@@ -27,10 +27,19 @@
 #   - Unattended take: set STEP_DELAY=<seconds> to auto-advance instead of waiting,
 #     e.g.  STEP_DELAY=4 ./demo.sh   (no terminal? it also falls back to STEP_DELAY).
 #
+# STEP SELECTION: set STEPS to a comma-separated subset to run only those steps,
+#   e.g.  STEPS=1,5 ./demo.sh   (just health + the FAILED/retry path).
+#   Steps: 1 health  2 positive  3 negative  4 dedupe  5 FAILED+retry  6 read-API  7 outro.
+#   (The /health backend probe always runs so step narration stays accurate.)
+#
 set -euo pipefail
 
 BASE="${BASE:-http://localhost:3000}"
 STEP_DELAY="${STEP_DELAY:-}"
+STEPS="${STEPS:-1,2,3,4,5,6,7}"
+
+# True if step N is in the selected STEPS set.
+want() { case ",$STEPS," in *",$1,"*) return 0 ;; *) return 1 ;; esac; }
 
 # --- helpers ----------------------------------------------------------------
 
@@ -141,91 +150,113 @@ pause() {
 
 # --- flow -------------------------------------------------------------------
 
-echo
-echo "== 1. Health check =="
-echo "# Confirms the server is up and which LLM backend is wired."
+# id captures, pre-initialised so any STEPS subset is safe under `set -u`.
+RESP_A=""; ID_A=""; RESP_B=""; ID_B=""; RESP_DUP=""; ID_DUP=""; RESP_C=""; ID_C=""; ST_C=""
+
+# Always probe the backend (cheap) so each step narrates the right thing even when
+# step 1 itself isn't selected.
 HEALTH=$(curl -s "$BASE/health")
-printf '%s' "$HEALTH" | show
 LLM_MODE=$(printf '%s' "$HEALTH" | extract_llm)
 if [ "$LLM_MODE" = "fake" ]; then
   BACKEND_DESC="the deterministic fake LLM (keyword heuristics, offline)"
-  echo "# Backend: llm='fake' — deterministic offline backend (no key, no network)."
 else
   BACKEND_DESC="the live model (llm='$LLM_MODE')"
-  echo "# Backend: llm='$LLM_MODE' — a real OpenAI-compatible model (e.g. Groq/Ollama)."
 fi
-pause
 
-echo "== 2. Submit POSITIVE feedback (with a feature request) =="
-echo "# Async ingest: POST returns 202 RECEIVED immediately, analysis runs in the background."
-RESP_A=$(post "I love how fast this app is! Please add a dark mode and CSV export.")
-ID_A=$(printf '%s' "$RESP_A" | extract_id)
-echo "# Captured id A = $ID_A"
-echo "# Polling until the worker finishes the analysis..."
-poll "$ID_A"
-echo "# Note: positive sentiment, a feature_requests entry, and an actionable_insight."
-pause
-
-echo "== 3. Submit NEGATIVE feedback =="
-echo "# Same pipeline; $BACKEND_DESC scores this one's sentiment (expected: negative)."
-RESP_B=$(post "The app keeps crashing and it's incredibly slow. Worst update ever.")
-ID_B=$(printf '%s' "$RESP_B" | extract_id)
-echo "# Captured id B = $ID_B"
-poll "$ID_B"
-echo "# Note: negative sentiment."
-pause
-
-echo "== 4. Dedupe guardrail =="
-echo "# Re-POST the EXACT same content as step 2. The API dedupes by content hash:"
-echo "# it returns 200 with deduplicated:true and the SAME id A — no duplicate row,"
-echo "# no new analysis, no wasted LLM spend."
-RESP_DUP=$(post "I love how fast this app is! Please add a dark mode and CSV export.")
-ID_DUP=$(printf '%s' "$RESP_DUP" | extract_id)
-echo "# Returned id = $ID_DUP (should equal id A = $ID_A)"
-pause
-
-echo "== 5. FAILED analysis + retry =="
-echo "# Exercises the defensive path: invalid model output -> FAILED (raw + error persisted),"
-echo "# then a manual retry."
-if [ "$LLM_MODE" = "fake" ]; then
-  echo "# The fake LLM honours the __FAIL_SCHEMA__ sentinel: it returns JSON of the wrong shape,"
-  echo "# so the worker's Zod re-validation rejects it and the row ends up FAILED."
-else
-  echo "# NOTE: you're on a live model ($LLM_MODE), which won't honour the __FAIL_SCHEMA__ sentinel —"
-  echo "# it just analyzes the text normally, so this will likely end up DONE, not FAILED. To demo"
-  echo "# the deterministic FAILED + retry path, restart the server with:  LLM_BASE_URL= npm start"
+if want 1; then
+  echo
+  echo "== 1. Health check =="
+  echo "# Confirms the server is up and which LLM backend is wired."
+  printf '%s' "$HEALTH" | show
+  if [ "$LLM_MODE" = "fake" ]; then
+    echo "# Backend: llm='fake' — deterministic offline backend (no key, no network)."
+  else
+    echo "# Backend: llm='$LLM_MODE' — a real OpenAI-compatible model (e.g. Groq/Ollama)."
+  fi
+  pause
 fi
-RESP_C=$(post "Please process this __FAIL_SCHEMA__ feedback")
-ID_C=$(printf '%s' "$RESP_C" | extract_id)
-echo "# Captured id C = $ID_C"
-poll "$ID_C" || true
-ST_C=$(curl -s "$BASE/feedback/$ID_C" | extract_status)
-pause
-if [ "$ST_C" = "FAILED" ]; then
-  echo "# Item is FAILED (valid:false, error set, rawResponse kept). Now retry it:"
-  echo "# POST /feedback/:id/retry flips FAILED -> RECEIVED and re-enqueues (202)."
-  curl -s -X POST "$BASE/feedback/$ID_C/retry" | show
-  echo "# Poll again -> a fresh attempt (attempt 2); the prior attempt's history is preserved,"
-  echo "# proving retry works end-to-end."
+
+if want 2; then
+  echo "== 2. Submit POSITIVE feedback (with a feature request) =="
+  echo "# Async ingest: POST returns 202 RECEIVED immediately, analysis runs in the background."
+  RESP_A=$(post "I love how fast this app is! Please add a dark mode and CSV export.")
+  ID_A=$(printf '%s' "$RESP_A" | extract_id)
+  echo "# Captured id A = $ID_A"
+  echo "# Polling until the worker finishes the analysis..."
+  poll "$ID_A"
+  echo "# Note: positive sentiment, a feature_requests entry, and an actionable_insight."
+  pause
+fi
+
+if want 3; then
+  echo "== 3. Submit NEGATIVE feedback =="
+  echo "# Same pipeline; $BACKEND_DESC scores this one's sentiment (expected: negative)."
+  RESP_B=$(post "The app keeps crashing and it's incredibly slow. Worst update ever.")
+  ID_B=$(printf '%s' "$RESP_B" | extract_id)
+  echo "# Captured id B = $ID_B"
+  poll "$ID_B"
+  echo "# Note: negative sentiment."
+  pause
+fi
+
+if want 4; then
+  echo "== 4. Dedupe guardrail =="
+  echo "# Re-POST the EXACT same content as step 2. The API dedupes by content hash:"
+  echo "# it returns 200 with deduplicated:true and the SAME id — no duplicate row,"
+  echo "# no new analysis, no wasted LLM spend."
+  RESP_DUP=$(post "I love how fast this app is! Please add a dark mode and CSV export.")
+  ID_DUP=$(printf '%s' "$RESP_DUP" | extract_id)
+  echo "# Returned id = $ID_DUP${ID_A:+ (should equal id A = $ID_A)}"
+  pause
+fi
+
+if want 5; then
+  echo "== 5. FAILED analysis + retry =="
+  echo "# Exercises the defensive path: invalid model output -> FAILED (raw + error persisted),"
+  echo "# then a manual retry."
+  if [ "$LLM_MODE" = "fake" ]; then
+    echo "# The fake LLM honours the __FAIL_SCHEMA__ sentinel: it returns JSON of the wrong shape,"
+    echo "# so the worker's Zod re-validation rejects it and the row ends up FAILED."
+  else
+    echo "# NOTE: you're on a live model ($LLM_MODE), which won't honour the __FAIL_SCHEMA__ sentinel —"
+    echo "# it just analyzes the text normally, so this will likely end up DONE, not FAILED. To demo"
+    echo "# the deterministic FAILED + retry path, restart the server with:  LLM_BASE_URL= npm start"
+  fi
+  RESP_C=$(post "Please process this __FAIL_SCHEMA__ feedback")
+  ID_C=$(printf '%s' "$RESP_C" | extract_id)
+  echo "# Captured id C = $ID_C"
   poll "$ID_C" || true
-else
-  echo "# Item is $ST_C, not FAILED — the live model produced valid output, so there is nothing to"
-  echo "# retry (retry only applies to FAILED items; calling it here would return 409). Run against"
-  echo "# the fake LLM (LLM_BASE_URL= npm start) to see the FAILED + retry path deterministically."
+  ST_C=$(curl -s "$BASE/feedback/$ID_C" | extract_status)
+  pause
+  if [ "$ST_C" = "FAILED" ]; then
+    echo "# Item is FAILED (valid:false, error set, rawResponse kept). Now retry it:"
+    echo "# POST /feedback/:id/retry flips FAILED -> RECEIVED and re-enqueues (202)."
+    curl -s -X POST "$BASE/feedback/$ID_C/retry" | show
+    echo "# Poll again -> a fresh attempt (attempt 2); the prior attempt's history is preserved,"
+    echo "# proving retry works end-to-end."
+    poll "$ID_C" || true
+  else
+    echo "# Item is $ST_C, not FAILED — the live model produced valid output, so there is nothing to"
+    echo "# retry (retry only applies to FAILED items; calling it here would return 409). Run against"
+    echo "# the fake LLM (LLM_BASE_URL= npm start) to see the FAILED + retry path deterministically."
+  fi
+  pause
 fi
-pause
 
-echo "== 6. Read API =="
-echo "# List ALL feedback with current status + latest analysis."
-curl -s "$BASE/feedback" | show
-pause
-echo "# Filter to completed analyses only: ?status=DONE"
-curl -s "$BASE/feedback?status=DONE" | show
-pause
-echo "# Filter to failed analyses only: ?status=FAILED"
-curl -s "$BASE/feedback?status=FAILED" | show
-pause
+if want 6; then
+  echo "== 6. Read API =="
+  echo "# List ALL feedback with current status + latest analysis."
+  curl -s "$BASE/feedback" | show
+  pause
+  echo "# Filter to completed analyses only: ?status=DONE"
+  curl -s "$BASE/feedback?status=DONE" | show
+  pause
+  echo "# Filter to failed analyses only: ?status=FAILED"
+  curl -s "$BASE/feedback?status=FAILED" | show
+  pause
+fi
 
+want 7 || exit 0
 echo "== 7. Done =="
 if [ "$LLM_MODE" = "fake" ]; then
   echo "# That entire flow ran offline against the deterministic fake LLM — no API key, no"

@@ -108,9 +108,9 @@ run_phase() {
   echo "# server up (pid $SERVER_PID) — /health: $(curl -s "$base/health")"
   echo
 
-  # Run the walkthrough against this server. Don't let a demo non-zero exit abort
-  # the orchestrator (we still want to clean up and run the next phase).
-  BASE="$base" ./demo.sh || true
+  # Run the walkthrough against this server (DEMO_STEPS selects which steps). Don't let
+  # a demo non-zero exit abort the orchestrator (we still want to clean up + run phase 2).
+  BASE="$base" STEPS="${DEMO_STEPS:-1,2,3,4,5,6,7}" ./demo.sh || true
 
   cleanup
 }
@@ -118,12 +118,15 @@ run_phase() {
 # --- run both phases --------------------------------------------------------
 RC=0
 
-# Phase 1: LIVE — inherit .env (Groq/Ollama). No extra env assignment.
-run_phase "PHASE 1/2 — LIVE model (real LLM analysis; uses your .env)" \
+# Phase 1: LIVE — inherit .env (Groq/Ollama). Happy path only; the failure step (5) is a
+# no-op on a real model, so we skip it here and demonstrate it deterministically in phase 2.
+DEMO_STEPS="1,2,3,4,6,7"
+run_phase "PHASE 1/2 — LIVE model (real LLM analysis; happy path)" \
   "$REAL_PORT" "/tmp/demo-live.db" || { echo "Phase 1 (live) failed — continuing to the fake phase." >&2; RC=1; }
 
-# Phase 2: FAKE — force the deterministic offline backend for the FAILED + retry path.
-run_phase "PHASE 2/2 — FAKE LLM (deterministic FAILED + retry path)" \
+# Phase 2: FAKE — force the deterministic offline backend; show ONLY the FAILED + retry path.
+DEMO_STEPS="1,5"
+run_phase "PHASE 2/2 — FAKE LLM (FAILED + retry only)" \
   "$FAKE_PORT" "/tmp/demo-fake.db" "LLM_BASE_URL=" || { echo "Phase 2 (fake) failed." >&2; RC=1; }
 
 echo
