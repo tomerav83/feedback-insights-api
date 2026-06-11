@@ -27,7 +27,8 @@ function freshPipeline() {
   const db = openDatabase(':memory:');
   migrate(db);
   const repo = createFeedbackRepo(db);
-  const analyze = createAnalyzer({ repo, llm: createFakeLLMClient() });
+  // sleep is a no-op so transient auto-retries don't add real backoff delay to the tests.
+  const analyze = createAnalyzer({ repo, llm: createFakeLLMClient(), sleep: async () => {} });
   const queue = createQueue({ concurrency: 2, process: analyze });
   queue.start();
   return { db, repo, queue };

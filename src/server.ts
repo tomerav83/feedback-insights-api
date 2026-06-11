@@ -51,6 +51,15 @@ export function buildServer(deps: ServerDeps = {}): FastifyInstance {
   });
   queue.start();
 
+  // Crash recovery: the in-process queue isn't durable, so anything left mid-flight on a
+  // previous run is stuck in ANALYZING. Reset those to RECEIVED and re-enqueue so they make
+  // forward progress instead of stalling forever.
+  const recovered = repo.recoverStuck();
+  if (recovered.length > 0) {
+    app.log.warn({ count: recovered.length }, 'recovered stuck ANALYZING items on boot');
+    for (const id of recovered) queue.enqueue(id);
+  }
+
   app.register(healthRoutes);
   app.register(feedbackRoutes, { repo, queue });
 
