@@ -40,7 +40,7 @@ function flakyLLM(failures: number): LLMClient {
   };
 }
 
-describe('P4 worker auto-retry on transient errors', () => {
+describe('worker auto-retry on transient errors', () => {
   it('retries within budget and ends DONE once the LLM recovers', async () => {
     const db = openDatabase(':memory:');
     migrate(db);
@@ -80,7 +80,7 @@ describe('P4 worker auto-retry on transient errors', () => {
   });
 });
 
-describe('P4 dedupe + /retry endpoints', () => {
+describe('dedupe + /retry endpoints', () => {
   let app: ReturnType<typeof buildServer> | undefined;
   afterEach(async () => {
     await app?.close();
@@ -155,7 +155,7 @@ describe('P4 dedupe + /retry endpoints', () => {
   });
 });
 
-describe('P5 list endpoint: filter + pagination', () => {
+describe('list endpoint: filter + pagination', () => {
   let app: ReturnType<typeof buildServer> | undefined;
   afterEach(async () => {
     await app?.close();
@@ -193,7 +193,7 @@ describe('P5 list endpoint: filter + pagination', () => {
   });
 });
 
-describe('P5 stuck-ANALYZING recovery on boot', () => {
+describe('stuck-ANALYZING recovery on boot', () => {
   it('resets a stranded ANALYZING item and re-processes it to terminal', async () => {
     const db = openDatabase(':memory:');
     migrate(db);

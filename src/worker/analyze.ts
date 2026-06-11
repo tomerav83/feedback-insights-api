@@ -39,7 +39,7 @@ function formatZodIssues(error: z.ZodError): string {
  * failure) and ends in a terminal state. Nothing here throws: an adversarial model output
  * becomes a FAILED row, never a crashed worker.
  *
- * Retry policy (P4): a transient infra error (network/timeout/429/5xx, surfaced as
+ * Retry policy: a transient infra error (network/timeout/429/5xx, surfaced as
  * TransientLLMError) is auto-retried up to `maxAutoRetries` times with exponential backoff,
  * all WITHIN this one ANALYZING claim. Only the terminal outcome is persisted as a single
  * analysis row — the transient retries are infra hiccups, not distinct model attempts, so

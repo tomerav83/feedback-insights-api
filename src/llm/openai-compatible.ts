@@ -31,7 +31,7 @@ import { type LLMAnalysisResult, type LLMClient, TransientLLMError } from './typ
 // (npx tsx -e ...): the default output already satisfies OpenAI strict structured-output mode
 // — every object carries `additionalProperties: false` and lists every property in `required`,
 // and the inner FeatureRequest object is inlined (no $ref/$defs to resolve). The retained
-// The retained minLength/minimum/maximum keywords are harmless: they fall within the subset
+// minLength/minimum/maximum keywords are harmless: they fall within the subset
 // current OpenAI strict mode accepts, lenient backends (e.g. Ollama) simply don't enforce them,
 // and the worker re-validates with Zod regardless. We strip only the top-level `$schema` key.
 const { $schema: _$schema, ...JSON_SCHEMA } = z.toJSONSchema(AIAnalysisSchema) as Record<
@@ -72,7 +72,7 @@ export function createOpenAICompatibleClient(): LLMClient {
   const client = new OpenAI({
     baseURL: config.llm.baseUrl,
     apiKey: config.llm.apiKey,
-    // Own the retry policy in the worker (P4), not here: disable the SDK's built-in retries so
+    // Own the retry policy in the worker, not here: disable the SDK's built-in retries so
     // the worker's attempt counter + backoff are the single source of truth (no hidden retries).
     maxRetries: 0,
     // Fail fast instead of holding a worker slot for the SDK's 10-minute default; a timeout

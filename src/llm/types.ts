@@ -1,7 +1,7 @@
 /**
- * The LLM boundary. One narrow interface that both the deterministic fake (P2) and the
- * real OpenAI-compatible client (P3) implement, so the worker is written once against the
- * contract and never against a provider.
+ * The LLM boundary. One narrow interface that both the deterministic fake and the real
+ * OpenAI-compatible client implement, so the worker is written once against the contract
+ * and never against a provider.
  *
  * Division of responsibility (deliberate):
  *  - The client's job is transport + JSON parsing only. It returns the raw model text
@@ -41,7 +41,7 @@ export interface LLMClient {
 
 /**
  * Marks a retryable infrastructure failure (network/timeout/429/5xx) as distinct from a
- * malformed-output failure. The worker classifies on this type: transient -> (P4) bounded
+ * malformed-output failure. The worker classifies on this type: transient -> bounded
  * auto-retry then FAILED; schema-invalid -> FAILED immediately (don't burn tokens looping).
  */
 export class TransientLLMError extends Error {
