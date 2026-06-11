@@ -22,7 +22,10 @@
 #
 set -euo pipefail
 
-cd "$(dirname "$0")"   # repo root, so ./demo.sh and src/index.ts resolve
+# This script lives in demo/; resolve its own dir, then operate from the repo root
+# (so src/index.ts and node_modules resolve) while still calling its sibling demo.sh.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR/.."
 
 REAL_PORT="${REAL_PORT:-3201}"
 FAKE_PORT="${FAKE_PORT:-3202}"
@@ -110,7 +113,7 @@ run_phase() {
 
   # Run the walkthrough against this server (DEMO_STEPS selects which steps). Don't let
   # a demo non-zero exit abort the orchestrator (we still want to clean up + run phase 2).
-  BASE="$base" STEPS="${DEMO_STEPS:-1,2,3,4,5,6,7}" ./demo.sh || true
+  BASE="$base" STEPS="${DEMO_STEPS:-1,2,3,4,5,6,7}" "$SCRIPT_DIR/demo.sh" || true
 
   cleanup
 }

@@ -39,7 +39,7 @@ fake backend, so `npm start` and the entire test suite work with zero key / zero
 npm test           # vitest — offline, against the fake LLM
 npm run typecheck  # tsc --noEmit
 npm run dev        # tsx watch (reload on change)
-./demo.sh          # curl walkthrough — drives the full flow end-to-end against the running server
+./demo/demo.sh     # curl walkthrough — drives the full flow end-to-end against the running server
 ```
 
 Example requests:
@@ -61,8 +61,10 @@ curl -s localhost:3000/feedback/<id>
 curl -s -XPOST localhost:3000/feedback/<id>/retry
 ```
 
-`demo.sh` (a scripted curl sequence) drives this full flow end-to-end, including the failure paths,
-and is the fastest manual smoke test of the whole system.
+`demo/demo.sh` (a scripted curl sequence) drives this full flow end-to-end, including the failure
+paths, and is the fastest manual smoke test of the whole system. For a hands-off, two-backend
+walkthrough (real model **and** the deterministic failure path) that starts and stops its own
+servers, see [Demo](#demo) and `demo/demo-all.sh`.
 
 ---
 
@@ -98,6 +100,63 @@ The live client forces OpenAI `response_format: json_schema` (strict), so the mo
 structured output**. On Groq, `llama-4-scout` and `gpt-oss-20b` accept `json_schema`;
 `llama-3.3-70b-versatile` and `qwen3-32b` do **not** and will error. `GET /health` reports which
 backend is active (`{"llm":"live"}` or `{"llm":"fake"}`).
+
+---
+
+## Demo
+
+The `demo/` directory holds two scripts:
+
+| Script | What it does |
+|---|---|
+| `demo/demo.sh` | The walkthrough itself — a narrated `curl` sequence against a server **you** already started. |
+| `demo/demo-all.sh` | An orchestrator that runs `demo.sh` in two phases, starting/stopping its own servers and cleaning up. |
+
+Both pause between steps so the output is readable on screen (press Enter to advance, or set
+`STEP_DELAY=<seconds>` to auto-advance). `demo.sh` also takes `STEPS=<comma-list>` to run a subset
+(e.g. `STEPS=1,5` = health + the FAILED/retry path).
+
+`demo-all.sh` runs:
+
+- **Phase 1 — live** (uses your `.env`): the happy path against a real model.
+- **Phase 2 — fake** (forces `LLM_BASE_URL=`): the deterministic `FAILED → retry` path (a real model
+  won't reproduce it — it ignores the fake's `__FAIL_SCHEMA__` failure-injection sentinel).
+
+Each phase runs on a throwaway DB + port (`3201`/`3202`), so your real `data.db` and port `3000` are
+untouched, and an `EXIT`/`INT`/`TERM` trap guarantees the server is stopped and the temp DB removed
+even on Ctrl-C.
+
+### Running `demo-all.sh` on a clean environment
+
+From a fresh clone:
+
+```bash
+# 1. Node 22 (the native better-sqlite3 build needs it)
+nvm install                 # or install Node 22 any other way
+
+# 2. Install dependencies (compiles better-sqlite3)
+npm install
+
+# 3. (Optional) configure a REAL backend for phase 1. Without this, phase 1 also runs
+#    against the offline fake — the demo still works, it just isn't a real model.
+cp .env.example .env
+#    then edit .env, e.g. for Groq's free tier:
+#      LLM_BASE_URL=https://api.groq.com/openai/v1
+#      LLM_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
+#      LLM_API_KEY=<your free key>
+
+# 4. Run the two-phase demo (interactive — press Enter between steps)
+./demo/demo-all.sh
+#    …or hands-off, auto-advancing every 3s (good for an unattended recording):
+STEP_DELAY=3 ./demo/demo-all.sh
+```
+
+Requirements: `bash`, `curl` (and Node 22 + `npm install` as above). `jq` is optional — the scripts
+fall back to raw JSON if it's absent.
+
+> Tip: to demo a single backend against a server you control instead, start it yourself
+> (`LLM_BASE_URL= npm start` for the fake, or `npm start` with a configured `.env` for live) and run
+> `BASE=http://localhost:3000 ./demo/demo.sh`.
 
 ---
 
@@ -239,9 +298,10 @@ handling, content-hash dedupe, the endpoints and their status codes, `/retry` se
 ## AI Collaboration Log
 
 **Tool:** Claude Code (Opus 4.8) for the entire build, via an iterative plan-then-implement loop.
-`PLAN.md` (tech-stack table with rationale + rejected alternatives, architecture, state machine, env
-config) was authored with it first; then portions P0–P8 were implemented and checkpointed one at a
-time. `DESIGN-NOTES.md` captured real decisions *during* the build, which this README distills.
+The stack and architecture (tech choices with rejected alternatives, the state machine, env config)
+were settled with it up front, then the system was implemented and checkpointed in small slices —
+data layer, vertical slice against the fake LLM, real client, guardrail/retry, read API, tests. The
+design decisions captured during the build are distilled into the section above.
 
 ### Example prompts relied on
 
@@ -262,8 +322,8 @@ time. `DESIGN-NOTES.md` captured real decisions *during* the build, which this R
 
 ### One concrete case where the AI was wrong, and how I constrained it
 
-The AI's initial P3 plan assumed `response_format: { type: 'json_schema', strict: true }` would
-**enforce** the interesting constraints — `confidence ∈ [0,1]` and a non-empty `actionable_insight`.
+The AI's initial plan for the LLM client assumed `response_format: { type: 'json_schema', strict: true }`
+would **enforce** the interesting constraints — `confidence ∈ [0,1]` and a non-empty `actionable_insight`.
 That is false: OpenAI strict structured-output mode supports only a *subset* of JSON Schema. It
 ignores/rejects numeric `minimum`/`maximum` and string `minLength`, and a strictly-validating backend
 can return **400 ("unsupported keyword")** when the generated schema carries them. Trusting the model
