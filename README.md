@@ -160,14 +160,9 @@ fall back to raw JSON if it's absent.
 
 ### Demo recording
 
-<!-- DEMO VIDEO: replace the line below with your recording.
-     Easiest: open this README on github.com, click the pencil (Edit), and drag the
-     .mp4/.mov into the editor — GitHub uploads it and inserts a
-     https://github.com/<owner>/<repo>/assets/... link that renders an inline player.
-     Alternatively link a hosted video (YouTube/Loom):
-       [![Watch the demo](docs/demo-thumbnail.png)](https://youtu.be/VIDEO_ID) -->
+A recorded end-to-end walkthrough lives at [`demo/demo.mp4`](demo/demo.mp4) (click to play on GitHub).
 
-_Demo video: to be added._
+<video src="https://github.com/tomerav83/feedback-insights-api/raw/main/demo/demo.mp4" controls width="100%"></video>
 
 ---
 
