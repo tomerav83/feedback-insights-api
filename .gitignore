@@ -1,0 +1,22 @@
+node_modules/
+dist/
+coverage/
+
+# env / secrets — never commit the real key
+.env
+.env.local
+.env.*.local
+
+# sqlite database files
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# editor / OS
+.idea
+.DS_Store
+*.log
+
+# challenge artifact (not part of deliverable source)
+AI-Assisted-Engineering-Challenge.pdf
