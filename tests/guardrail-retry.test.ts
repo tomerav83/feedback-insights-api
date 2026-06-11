@@ -212,4 +212,23 @@ describe('P5 stuck-ANALYZING recovery on boot', () => {
       await app.close();
     }
   });
+
+  it('re-enqueues an orphaned RECEIVED item (dropped pending work) on boot', async () => {
+    const db = openDatabase(':memory:');
+    migrate(db);
+    const repo = createFeedbackRepo(db);
+
+    // Simulate work that was enqueued but dropped from the non-durable queue on shutdown:
+    // a row left in RECEIVED that was never marked ANALYZING (so recoverStuck won't touch it).
+    const fb = repo.create({ content: 'never started before restart', contentHash: hashContent('never started before restart') });
+    expect(repo.findById(fb.id)?.status).toBe('RECEIVED');
+
+    // Booting must enqueue all RECEIVED rows, not just the ones reset from ANALYZING.
+    const app = buildServer({ db, llm: createFakeLLMClient() });
+    try {
+      expect(await waitForTerminal(repo, fb.id)).toBe('DONE');
+    } finally {
+      await app.close();
+    }
+  });
 });

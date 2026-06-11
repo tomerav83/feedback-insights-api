@@ -98,6 +98,13 @@ export interface FeedbackRepo {
   setStatus(id: string, to: FeedbackStatus, from?: FeedbackStatus | FeedbackStatus[]): boolean;
   /** Crash recovery: reset any item stuck in ANALYZING back to RECEIVED. Returns their ids. */
   recoverStuck(): string[];
+  /**
+   * Every id currently in RECEIVED. Enqueued on boot so un-started work survives a restart:
+   * the in-process queue is not durable, so a RECEIVED item dropped from the pending set on
+   * shutdown (it was never marked ANALYZING, so recoverStuck won't touch it) would otherwise
+   * be orphaned forever. Run this AFTER recoverStuck so the result includes the rows it reset.
+   */
+  pendingIds(): string[];
   insertAnalysis(input: InsertAnalysisInput): AnalysisRecord;
   /**
    * Terminal state-machine step, done atomically: record one analysis attempt AND flip the
@@ -142,6 +149,9 @@ export function createFeedbackRepo(db: Db): FeedbackRepo {
   const recoverStmt = db.prepare<[string]>(
     `UPDATE feedback SET status = 'RECEIVED', updated_at = ?
      WHERE status = 'ANALYZING' RETURNING id`,
+  );
+  const pendingIdsStmt = db.prepare(
+    `SELECT id FROM feedback WHERE status = 'RECEIVED' ORDER BY created_at ASC`,
   );
 
   const insertAnalysisStmt = db.prepare<
@@ -253,6 +263,10 @@ export function createFeedbackRepo(db: Db): FeedbackRepo {
     recoverStuck() {
       const rows = recoverStmt.all(nowIso()) as Array<{ id: string }>;
       return rows.map((r) => r.id);
+    },
+
+    pendingIds() {
+      return (pendingIdsStmt.all() as Array<{ id: string }>).map((r) => r.id);
     },
 
     insertAnalysis(input) {

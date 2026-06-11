@@ -51,13 +51,20 @@ export function buildServer(deps: ServerDeps = {}): FastifyInstance {
   });
   queue.start();
 
-  // Crash recovery: the in-process queue isn't durable, so anything left mid-flight on a
-  // previous run is stuck in ANALYZING. Reset those to RECEIVED and re-enqueue so they make
-  // forward progress instead of stalling forever.
+  // Crash recovery: the in-process queue isn't durable. Two kinds of work can be stranded by a
+  // restart — (1) items left mid-flight, stuck in ANALYZING, and (2) RECEIVED items that were
+  // still pending (never started) when the queue was dropped on shutdown. Reset the former to
+  // RECEIVED, then enqueue EVERY RECEIVED row (which now includes the rows we just reset plus
+  // any orphaned pending ones) so all non-terminal work makes forward progress instead of
+  // stalling forever. The worker's RECEIVED->ANALYZING claim CAS makes a redundant enqueue safe.
   const recovered = repo.recoverStuck();
   if (recovered.length > 0) {
-    app.log.warn({ count: recovered.length }, 'recovered stuck ANALYZING items on boot');
-    for (const id of recovered) queue.enqueue(id);
+    app.log.warn({ count: recovered.length }, 'reset stuck ANALYZING items to RECEIVED on boot');
+  }
+  const pending = repo.pendingIds();
+  if (pending.length > 0) {
+    app.log.info({ count: pending.length }, 'enqueuing pending RECEIVED items on boot');
+    for (const id of pending) queue.enqueue(id);
   }
 
   app.register(healthRoutes);
