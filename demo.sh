@@ -21,9 +21,16 @@
 # Optionally install `jq` for pretty-printed JSON (the script falls back to raw
 # output if jq is absent). Override the target with BASE=http://host:port ./demo.sh
 #
+# PACING (so the output is readable on screen / in a recording):
+#   - Default: the script PAUSES after each step and waits for you to press Enter,
+#     so you control the pace of the recording.
+#   - Unattended take: set STEP_DELAY=<seconds> to auto-advance instead of waiting,
+#     e.g.  STEP_DELAY=4 ./demo.sh   (no terminal? it also falls back to STEP_DELAY).
+#
 set -euo pipefail
 
 BASE="${BASE:-http://localhost:3000}"
+STEP_DELAY="${STEP_DELAY:-}"
 
 # --- helpers ----------------------------------------------------------------
 
@@ -106,6 +113,23 @@ poll() {
   return 1
 }
 
+# Pause between steps so the output stays readable. Waits for Enter by default (you
+# drive the pace); if STEP_DELAY is set, or there's no interactive terminal, it sleeps
+# that many seconds instead of blocking.
+pause() {
+  echo
+  if [ -n "$STEP_DELAY" ]; then
+    sleep "$STEP_DELAY"
+  elif [ -r /dev/tty ]; then
+    printf '   --- press Enter to continue --- ' > /dev/tty
+    read -r _ < /dev/tty || true
+    echo
+  else
+    sleep 3
+  fi
+  echo
+}
+
 # --- flow -------------------------------------------------------------------
 
 echo
@@ -113,7 +137,7 @@ echo "== 1. Health check =="
 echo "# Confirms the server is up and which LLM backend is wired."
 echo "# Expect llm:'fake' — the deterministic offline backend (no key, no network)."
 curl -s "$BASE/health" | show
-echo
+pause
 
 echo "== 2. Submit POSITIVE feedback (with a feature request) =="
 echo "# Async ingest: POST returns 202 RECEIVED immediately, analysis runs in the background."
@@ -123,7 +147,7 @@ echo "# Captured id A = $ID_A"
 echo "# Polling until the worker finishes the analysis..."
 poll "$ID_A"
 echo "# Note: positive sentiment, a feature_requests entry, and an actionable_insight."
-echo
+pause
 
 echo "== 3. Submit NEGATIVE feedback =="
 echo "# Same pipeline; the fake LLM's keyword heuristics score this one negative."
@@ -132,7 +156,7 @@ ID_B=$(printf '%s' "$RESP_B" | extract_id)
 echo "# Captured id B = $ID_B"
 poll "$ID_B"
 echo "# Note: negative sentiment."
-echo
+pause
 
 echo "== 4. Dedupe guardrail =="
 echo "# Re-POST the EXACT same content as step 2. The API dedupes by content hash:"
@@ -141,7 +165,7 @@ echo "# no new analysis, no wasted LLM spend."
 RESP_DUP=$(post "I love how fast this app is! Please add a dark mode and CSV export.")
 ID_DUP=$(printf '%s' "$RESP_DUP" | extract_id)
 echo "# Returned id = $ID_DUP (should equal id A = $ID_A)"
-echo
+pause
 
 echo "== 5. FAILED analysis + retry =="
 echo "# The __FAIL_SCHEMA__ sentinel makes the fake LLM return JSON of the wrong shape,"
@@ -152,24 +176,24 @@ ID_C=$(printf '%s' "$RESP_C" | extract_id)
 echo "# Captured id C = $ID_C"
 poll "$ID_C" || true
 echo "# Note: status FAILED, valid:false, error set, rawResponse captures the bad output."
-echo
+pause
 echo "# Now retry it: POST /feedback/:id/retry flips FAILED -> RECEIVED and re-enqueues (202)."
 curl -s -X POST "$BASE/feedback/$ID_C/retry" | show
 echo "# Poll again. It fails the same way (deterministic), but this is attempt 2 —"
 echo "# the previous attempt's history is preserved, proving retry works end-to-end."
 poll "$ID_C" || true
-echo
+pause
 
 echo "== 6. Read API =="
 echo "# List ALL feedback with current status + latest analysis."
 curl -s "$BASE/feedback" | show
-echo
+pause
 echo "# Filter to completed analyses only: ?status=DONE"
 curl -s "$BASE/feedback?status=DONE" | show
-echo
+pause
 echo "# Filter to failed analyses only: ?status=FAILED"
 curl -s "$BASE/feedback?status=FAILED" | show
-echo
+pause
 
 echo "== 7. Done =="
 echo "# That entire flow ran offline against the deterministic fake LLM — no API key,"
