@@ -7,17 +7,17 @@
 # retry, and exercise the read/list API. Written as a single clean take so it can
 # be screen-recorded straight through.
 #
-# It runs against the default deterministic FAKE LLM (no API key, no network),
-# which is exactly what makes the demo reproducible: the same content always
-# yields the same analysis.
+# It works against EITHER backend and reports which one is live (it reads /health at
+# the start and narrates accordingly):
+#   - FAKE LLM (deterministic, offline, no key): run `LLM_BASE_URL= npm start`.
+#       Fully reproducible, and step 5's FAILED demo works because the fake honours the
+#       __FAIL_SCHEMA__ failure-injection sentinel.
+#   - LIVE model (e.g. Groq/Ollama via your .env): run plain `npm start`.
+#       Real model output. Note: a real model won't honour __FAIL_SCHEMA__, so step 5
+#       won't deterministically produce a FAILED row — the script detects this and
+#       adjusts its narration (use the fake if you want to demo the failure path).
 #
-# PREREQUISITE: start the server in another terminal first, against the FAKE LLM:
-#     LLM_BASE_URL= npm start
-# (An empty LLM_BASE_URL forces the offline fake even if your .env points at a live
-# backend. The fake is what makes this demo deterministic — step 5 in particular uses
-# its __FAIL_SCHEMA__ failure-injection sentinel, which a real compliant model won't
-# reproduce. To demo a live model instead, run plain `npm start` with a configured
-# .env; steps 1-4 and 6 still work, but step 5 may return a valid analysis.)
+# PREREQUISITE: start the server in another terminal first (one of the two above).
 # Optionally install `jq` for pretty-printed JSON (the script falls back to raw
 # output if jq is absent). Override the target with BASE=http://host:port ./demo.sh
 #
@@ -65,6 +65,15 @@ extract_status() {
     jq -r '.status'
   else
     grep -o '"status"[[:space:]]*:[[:space:]]*"[^"]*"' | head -n1 | sed 's/.*"status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
+  fi
+}
+
+# Extract the "llm" field (live|fake) from the /health JSON on stdin.
+extract_llm() {
+  if [ "$HAVE_JQ" -eq 1 ]; then
+    jq -r '.llm'
+  else
+    grep -o '"llm"[[:space:]]*:[[:space:]]*"[^"]*"' | head -n1 | sed 's/.*"llm"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
   fi
 }
 
@@ -135,8 +144,16 @@ pause() {
 echo
 echo "== 1. Health check =="
 echo "# Confirms the server is up and which LLM backend is wired."
-echo "# Expect llm:'fake' — the deterministic offline backend (no key, no network)."
-curl -s "$BASE/health" | show
+HEALTH=$(curl -s "$BASE/health")
+printf '%s' "$HEALTH" | show
+LLM_MODE=$(printf '%s' "$HEALTH" | extract_llm)
+if [ "$LLM_MODE" = "fake" ]; then
+  BACKEND_DESC="the deterministic fake LLM (keyword heuristics, offline)"
+  echo "# Backend: llm='fake' — deterministic offline backend (no key, no network)."
+else
+  BACKEND_DESC="the live model (llm='$LLM_MODE')"
+  echo "# Backend: llm='$LLM_MODE' — a real OpenAI-compatible model (e.g. Groq/Ollama)."
+fi
 pause
 
 echo "== 2. Submit POSITIVE feedback (with a feature request) =="
@@ -150,7 +167,7 @@ echo "# Note: positive sentiment, a feature_requests entry, and an actionable_in
 pause
 
 echo "== 3. Submit NEGATIVE feedback =="
-echo "# Same pipeline; the fake LLM's keyword heuristics score this one negative."
+echo "# Same pipeline; $BACKEND_DESC scores this one's sentiment (expected: negative)."
 RESP_B=$(post "The app keeps crashing and it's incredibly slow. Worst update ever.")
 ID_B=$(printf '%s' "$RESP_B" | extract_id)
 echo "# Captured id B = $ID_B"
@@ -168,20 +185,34 @@ echo "# Returned id = $ID_DUP (should equal id A = $ID_A)"
 pause
 
 echo "== 5. FAILED analysis + retry =="
-echo "# The __FAIL_SCHEMA__ sentinel makes the fake LLM return JSON of the wrong shape,"
-echo "# so the worker rejects it and the row ends up FAILED — with the raw response and"
-echo "# error persisted for debugging."
+echo "# Exercises the defensive path: invalid model output -> FAILED (raw + error persisted),"
+echo "# then a manual retry."
+if [ "$LLM_MODE" = "fake" ]; then
+  echo "# The fake LLM honours the __FAIL_SCHEMA__ sentinel: it returns JSON of the wrong shape,"
+  echo "# so the worker's Zod re-validation rejects it and the row ends up FAILED."
+else
+  echo "# NOTE: you're on a live model ($LLM_MODE), which won't honour the __FAIL_SCHEMA__ sentinel —"
+  echo "# it just analyzes the text normally, so this will likely end up DONE, not FAILED. To demo"
+  echo "# the deterministic FAILED + retry path, restart the server with:  LLM_BASE_URL= npm start"
+fi
 RESP_C=$(post "Please process this __FAIL_SCHEMA__ feedback")
 ID_C=$(printf '%s' "$RESP_C" | extract_id)
 echo "# Captured id C = $ID_C"
 poll "$ID_C" || true
-echo "# Note: status FAILED, valid:false, error set, rawResponse captures the bad output."
+ST_C=$(curl -s "$BASE/feedback/$ID_C" | extract_status)
 pause
-echo "# Now retry it: POST /feedback/:id/retry flips FAILED -> RECEIVED and re-enqueues (202)."
-curl -s -X POST "$BASE/feedback/$ID_C/retry" | show
-echo "# Poll again. It fails the same way (deterministic), but this is attempt 2 —"
-echo "# the previous attempt's history is preserved, proving retry works end-to-end."
-poll "$ID_C" || true
+if [ "$ST_C" = "FAILED" ]; then
+  echo "# Item is FAILED (valid:false, error set, rawResponse kept). Now retry it:"
+  echo "# POST /feedback/:id/retry flips FAILED -> RECEIVED and re-enqueues (202)."
+  curl -s -X POST "$BASE/feedback/$ID_C/retry" | show
+  echo "# Poll again -> a fresh attempt (attempt 2); the prior attempt's history is preserved,"
+  echo "# proving retry works end-to-end."
+  poll "$ID_C" || true
+else
+  echo "# Item is $ST_C, not FAILED — the live model produced valid output, so there is nothing to"
+  echo "# retry (retry only applies to FAILED items; calling it here would return 409). Run against"
+  echo "# the fake LLM (LLM_BASE_URL= npm start) to see the FAILED + retry path deterministically."
+fi
 pause
 
 echo "== 6. Read API =="
@@ -196,8 +227,14 @@ curl -s "$BASE/feedback?status=FAILED" | show
 pause
 
 echo "== 7. Done =="
-echo "# That entire flow ran offline against the deterministic fake LLM — no API key,"
-echo "# no network — which is what makes this demo reproducible."
-echo "# Setting LLM_BASE_URL switches to a real OpenAI-compatible model with no code"
-echo "# changes: the same pipeline, routes, and guardrails run unchanged."
+if [ "$LLM_MODE" = "fake" ]; then
+  echo "# That entire flow ran offline against the deterministic fake LLM — no API key, no"
+  echo "# network — which is what makes this demo reproducible. Setting LLM_BASE_URL switches to"
+  echo "# a real OpenAI-compatible model (Groq/Ollama) with no code changes: same pipeline,"
+  echo "# routes, and guardrails."
+else
+  echo "# That flow ran against a live model (llm='$LLM_MODE') — the same pipeline, routes, and"
+  echo "# guardrails. Unset LLM_BASE_URL (LLM_BASE_URL= npm start) to run fully offline against the"
+  echo "# deterministic fake, which also makes the step-5 FAILED + retry path reproducible."
+fi
 echo
