@@ -99,6 +99,20 @@ export interface FeedbackRepo {
   /** Crash recovery: reset any item stuck in ANALYZING back to RECEIVED. Returns their ids. */
   recoverStuck(): string[];
   insertAnalysis(input: InsertAnalysisInput): AnalysisRecord;
+  /**
+   * Terminal state-machine step, done atomically: record one analysis attempt AND flip the
+   * feedback out of ANALYZING in a single transaction. The transition is a guarded CAS
+   * (`from` -> `to`); if the row is no longer in `from` the whole thing is a no-op — nothing
+   * is written. This is what prevents a crash *between* the two writes from leaving an
+   * analysis row with the item still ANALYZING (which boot recovery would re-run -> a
+   * duplicate analysis + wasted LLM spend). `transitioned` is false iff the CAS matched no
+   * row, in which case `analysis` is null (the attempt was deliberately not persisted, since
+   * we no longer owned the item).
+   */
+  finishAttempt(
+    input: InsertAnalysisInput,
+    transition: { to: FeedbackStatus; from: FeedbackStatus | FeedbackStatus[] },
+  ): { analysis: AnalysisRecord | null; transitioned: boolean };
   nextAttempt(feedbackId: string): number;
   latestAnalysis(feedbackId: string): AnalysisRecord | undefined;
   getWithAnalysis(id: string): FeedbackWithAnalysis | undefined;
@@ -144,6 +158,43 @@ export function createFeedbackRepo(db: Db): FeedbackRepo {
   const latestAnalysisStmt = db.prepare<[string]>(
     `SELECT * FROM analyses WHERE feedback_id = ?
      ORDER BY attempt DESC, created_at DESC LIMIT 1`,
+  );
+
+  // Atomic "write the attempt + transition" used by finishAttempt(). Wrapping both writes in
+  // one transaction makes the terminal step all-or-nothing. The guarded UPDATE runs first:
+  // if it matches no row (CAS lost), we insert nothing and report it, so an analysis row
+  // exists iff we owned the transition.
+  const finishAttemptTx = db.transaction(
+    (p: {
+      input: InsertAnalysisInput;
+      analysisId: string;
+      featureRequestsJson: string | null;
+      ts: string;
+      to: FeedbackStatus;
+      froms: FeedbackStatus[];
+    }): boolean => {
+      const placeholders = p.froms.map(() => '?').join(', ');
+      const info = db
+        .prepare(
+          `UPDATE feedback SET status = ?, updated_at = ?
+           WHERE id = ? AND status IN (${placeholders})`,
+        )
+        .run(p.to, p.ts, p.input.feedbackId, ...p.froms);
+      if (info.changes === 0) return false;
+      insertAnalysisStmt.run(
+        p.analysisId,
+        p.input.feedbackId,
+        p.input.attempt,
+        p.input.rawResponse,
+        p.input.sentiment,
+        p.featureRequestsJson,
+        p.input.actionableInsight,
+        p.input.valid ? 1 : 0,
+        p.input.error,
+        p.ts,
+      );
+      return true;
+    },
   );
 
   return {
@@ -232,6 +283,38 @@ export function createFeedbackRepo(db: Db): FeedbackRepo {
         valid: input.valid,
         error: input.error,
         createdAt: ts,
+      };
+    },
+
+    finishAttempt(input, transition) {
+      const analysisId = randomUUID();
+      const ts = nowIso();
+      const featureRequestsJson =
+        input.featureRequests === null ? null : JSON.stringify(input.featureRequests);
+      const froms = Array.isArray(transition.from) ? transition.from : [transition.from];
+      const transitioned = finishAttemptTx({
+        input,
+        analysisId,
+        featureRequestsJson,
+        ts,
+        to: transition.to,
+        froms,
+      });
+      if (!transitioned) return { analysis: null, transitioned: false };
+      return {
+        transitioned: true,
+        analysis: {
+          id: analysisId,
+          feedbackId: input.feedbackId,
+          attempt: input.attempt,
+          rawResponse: input.rawResponse,
+          sentiment: input.sentiment,
+          featureRequests: input.featureRequests,
+          actionableInsight: input.actionableInsight,
+          valid: input.valid,
+          error: input.error,
+          createdAt: ts,
+        },
       };
     },
 

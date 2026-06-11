@@ -55,6 +55,50 @@ steady-state contention. Its real value is the **boot recovery** path (`recoverS
 worker. Describe it as defense-in-depth + correct recovery, not as solving a race the queue
 already prevents.
 
+### P2 — LLM client does transport only; the worker owns validation
+The `LLMClient` interface returns `{ raw, json }` and does **no** schema checking. It throws
+only for retryable *infrastructure* failures (`TransientLLMError`); a malformed/non-JSON/
+wrong-shape body is a normal return. The worker then re-validates `json` with Zod. This split
+is what lets one code path map two distinct failure kinds onto different terminal states:
+- transient (thrown) → (P4) bounded auto-retry, else `FAILED`;
+- schema-invalid (returned) → `FAILED` immediately, raw persisted (no token-burn re-prompt).
+
+It also keeps "is transport working?" separate from "did the model produce a valid analysis?",
+and means the P3 real client only has to do HTTP + `JSON.parse` — the defensive layer is shared.
+
+### P2 — deterministic fake with failure-injection sentinels
+The fake derives sentiment/feature-requests from keyword heuristics (plausible, schema-valid,
+**reproducible**), and recognizes double-underscore sentinels to drive each defensive branch on
+demand: `__FAIL_PARSE__` (non-JSON), `__FAIL_SCHEMA__` (bad enum + out-of-range confidence +
+empty insight), `__FAIL_TRANSIENT__` (throws). This is why every state-machine edge is covered
+by an offline test, and the demo can show a real `FAILED` row without depending on a flaky model.
+
+### P2 — queue: self-rescheduling pump, drop-pending-on-stop
+The in-process queue is a ~40-line pump: each finished task frees a slot and re-pumps, so up to
+`WORKER_CONCURRENCY` run at once with no timers/polling. It is generic over `process` — it knows
+nothing about feedback or the DB, keeping the entire state machine in the worker. `stop()` stops
+accepting work and awaits **in-flight** tasks (graceful drain via Fastify `onClose`); **pending**
+items are intentionally dropped — the in-process queue is not durable.
+A last-resort `.catch` in the pump guards against an unexpected worker throw wedging the queue,
+even though the worker is written to swallow its own failures into `FAILED` rows.
+
+> **Boot-recovery must cover RECEIVED, not just ANALYZING (note for P5).** A dropped pending
+> item is still `RECEIVED` in the DB — it was never marked `ANALYZING`. So `recoverStuck()`
+> (which only resets `ANALYZING -> RECEIVED`) would *not* re-enqueue it, leaving it orphaned
+> in `RECEIVED` forever. P5 recovery must therefore **enqueue every non-terminal row**
+> (`RECEIVED` ∪ the rows it just reset from `ANALYZING`), not only the ones it reset. With
+> that, "dropped on shutdown" is genuinely recovered on next boot; without it, the in-process
+> queue silently loses un-started work.
+
+### P2 — terminal write + status transition are atomic
+The last step of the state machine — persist the `analyses` row **and** flip out of `ANALYZING`
+— runs in a single transaction (`repo.finishAttempt`, a guarded CAS + insert). Two separate
+statements would let a crash land *between* them: an analysis row written while the item is
+still `ANALYZING`, which boot recovery then re-runs — a duplicate analysis and wasted LLM spend.
+Doing it atomically means an attempt is persisted iff the transition it belongs to committed.
+The claim step (`RECEIVED -> ANALYZING`) stays a standalone CAS on purpose: it must precede the
+async LLM call, and a DB transaction can't (and shouldn't) be held open across a network round-trip.
+
 ## Minor / accepted
 
 - **`feature_requests` stored as JSON text:** not independently queryable by feature. Fine for
